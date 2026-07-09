@@ -3,10 +3,10 @@ import requests
 import json
 from dotenv import load_dotenv
 
-    # 環境変数（.env）の読み込み
+# 環境変数（.env）の読み込み
 load_dotenv()
 
-    # デフォルトのGemini APIキー (キー未設定時の緊急用)
+# デフォルトのGemini APIキー
 DEFAULT_GEMINI_KEY = "AIzaSyC2ZMIp6bXOrNiWx8xvYUlw5NN8GP2s2Bk"
 
 def call_gemini_api(api_key, prompt):
@@ -40,7 +40,7 @@ def call_openai_api(api_key, prompt):
     }
 
     payload = {
-        "model": "gpt-4o-mini", # 正しいモデル名に変更
+        "model": "gpt-4o-mini",
         "messages": [
             {
                 "role": "system",
@@ -93,13 +93,17 @@ def generate_advice(category, provider="Gemini"):
     result = None
 
     if provider == "Gemini":
-            # .envのGOOGLE_API_KEYか、なければデフォルトキーを使用
         api_key = os.getenv("GOOGLE_API_KEY") or DEFAULT_GEMINI_KEY
         if api_key:
             result = call_gemini_api(api_key, prompt)
 
     elif provider == "OpenAI":
-            # .envのOPENAI_API_KEYを使用
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             result = call_openai_api(api_key, prompt)
+
+    # 【重要】結果があればそれを返し、失敗・キー不足ならモックを返す処理を追加
+    if result:
+        return result
+    else:
+        return generate_mock_advice(category)

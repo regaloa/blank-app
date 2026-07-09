@@ -24,18 +24,15 @@ def create_database():
     )
     """)
 
+    # 初期目標データがない場合のみデフォルト値を挿入
+    cursor.execute("SELECT COUNT(*) FROM goals")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO goals (id, goal_problems, goal_time) VALUES (1, 10, 300)")
+
     conn.commit()
     conn.close()
 
-
-def save_log(
-    study_date,
-    study_time,
-    category,
-    problem_name,
-    result,
-    memo
-):
+def save_log(study_date, study_time, category, problem_name, result, memo):
     conn = sqlite3.connect("study.db")
     cursor = conn.cursor()
 
@@ -60,195 +57,64 @@ def save_log(
     ))
 
     conn.commit()
-    conn.close()
-
-
-TEST_VARIABLE = "hello"
-
-def get_logs():
-
-    conn = sqlite3.connect("study.db")
-
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT
-        study_date,
-        category,
-        problem_name,
-        result,
-        study_time
-    FROM study_logs
-    ORDER BY id DESC
-    """)
-
-    logs = cursor.fetchall()
-
-    conn.close()
-
-    return logs
+    conn.close() # 途切れていた接続クローズ処理を修正
 
 def get_statistics():
-
+    """学習ログから合計問題数と総学習時間を取得する"""
     conn = sqlite3.connect("study.db")
-
     cursor = conn.cursor()
-
-    # 総学習時間
-    cursor.execute("""
-    SELECT SUM(study_time)
-    FROM study_logs
-    """)
-
-    total_time = cursor.fetchone()[0]
-
-    # 総問題数
-    cursor.execute("""
-    SELECT COUNT(*)
-    FROM study_logs
-    """)
-
-    total_problems = cursor.fetchone()[0]
-
+    cursor.execute("SELECT COUNT(*), SUM(study_time) FROM study_logs")
+    row = cursor.fetchone()
     conn.close()
-
+    
+    total_problems = row[0] if row[0] is not None else 0
+    total_time = row[1] if row[1] is not None else 0
     return {
-        "total_time": total_time if total_time else 0,
-        "total_problems": total_problems
+        "total_problems": total_problems,
+        "total_time": total_time
     }
 
-#学習時間の推移
-def get_daily_study_time():
-
+def get_goal():
+    """設定された目標（目標問題数など）を取得する"""
     conn = sqlite3.connect("study.db")
     cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT
-        study_date,
-        SUM(study_time)
-    FROM study_logs
-    GROUP BY study_date
-    ORDER BY study_date DESC
-    LIMIT 7
-    """)
-
-    data = cursor.fetchall()
-
+    cursor.execute("SELECT goal_problems, goal_time FROM goals LIMIT 1")
+    row = cursor.fetchone()
     conn.close()
+    
+    if row:
+        return {
+            "goal_problems": row[0],
+            "goal_time": row[1]
+        }
+    return {
+        "goal_problems": 10,
+        "goal_time": 300
+    }
 
-    return data[::-1]
-
-#分野別達成率
-def get_category_result_stats(category):
-
-    conn = sqlite3.connect("study.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT
-        result,
-        COUNT(*)
-    FROM study_logs
-    WHERE category = ?
-    GROUP BY result
-    """, (category,))
-
-    data = cursor.fetchall()
-
-    conn.close()
-
-    return data
-
-
-#苦手分野を計算するための関数
 def get_weak_categories():
-
+    """カテゴリごとに正解率を計算し、低い（苦手な）順にソートして返す"""
     conn = sqlite3.connect("study.db")
     cursor = conn.cursor()
-
+    
     cursor.execute("""
-    SELECT
-        category,
-        SUM(CASE WHEN result='正解' THEN 1 ELSE 0 END) as correct,
-        COUNT(*) as total
+    SELECT category, 
+           COUNT(*) as total,
+           SUM(CASE WHEN result = '○' THEN 1 ELSE 0 END) as correct
     FROM study_logs
     GROUP BY category
     """)
-
-    data = cursor.fetchall()
-
+    rows = cursor.fetchall()
     conn.close()
-
-    result_list = []
-
-    for category, correct, total in data:
-
-        accuracy = (correct / total) * 100
-
-        result_list.append(
-            (category, accuracy)
-        )
-
-    result_list.sort(
-        key=lambda x: x[1]
-    )
-
-    return result_list
-
-
-#保存関数
-def save_goal(goal_problems, goal_time):
-
-    conn = sqlite3.connect("study.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    DELETE FROM goals
-    """)
-
-    cursor.execute("""
-    INSERT INTO goals(
-        goal_problems,
-        goal_time
-    )
-    VALUES (?, ?)
-    """,
-    (
-        goal_problems,
-        goal_time
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-#取得関数
-def get_goal():
-
-    conn = sqlite3.connect("study.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT
-        goal_problems,
-        goal_time
-    FROM goals
-    LIMIT 1
-    """)
-
-    goal = cursor.fetchone()
-
-    conn.close()
-
-    if goal is None:
-
-        return {
-            "goal_problems":100,
-            "goal_time":1000
-        }
-
-    return {
-        "goal_problems":goal[0],
-        "goal_time":goal[1]
-    }
+    
+    weak_list = []
+    for row in rows:
+        category = row[0]
+        total = row[1]
+        correct = row[2]
+        accuracy = (correct / total * 100) if total > 0 else 0
+        weak_list.append((category, accuracy))
+        
+    # 正解率の低い順（苦手な順）にソート
+    weak_list.sort(key=lambda x: x[1])
+    return weak_list
